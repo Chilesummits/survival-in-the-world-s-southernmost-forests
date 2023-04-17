@@ -1,0 +1,297 @@
+# Specify model in JAGS
+cat(file="model.txt","
+model {
+
+# Survival regressions with three climate covariate effects plus 
+# one set of parameters to estimate temporal trend in survival
+# These are the basic species-level linear models for juv and ad phi
+# Both regressions contain random year effects (as despised by Erik)
+# Juvenile and adults are separated because there are only 3 species with juvenile data and all 9 with adult data
+
+for (s in 1:(nspecies.j)){
+  for (t in 1:(nyears-1)){
+    logit(phi.j[t,s]) <- mu.j[s] + beta.j1[s]*precip[t] + beta.j2[s]*min.temp[t] + beta.j3[s]*enso[t] + beta.j.trend[s]*t + epsilon.js[t,s]
+  }
+}
+
+for (s in 1:(nspecies)){
+  for (t in 1:(nyears-1)){
+    logit(phi.a[t,s]) <- mu.a[s] + beta.a1[s]*precip[t] + beta.a2[s]*min.temp[t] + beta.a3[s]*enso[t] + beta.a.trend[s]*t + epsilon.as[t,s]
+  }
+}
+
+# Recapture rates dependent on net effort (same for both ages)
+# And this is the linear model for recapture
+# It also has random year effects
+for (s in 1:(nspecies)){
+  for (t in 1:(nyears-1)){
+    logit(p[t,s]) <- mu.p[s] + beta.p[s]*net.eff[t] + epsilon.p[t,s]  #Recapture is dependent on net effort
+  }
+}
+
+# Priors and community structure
+# Species-specific annual random effects (= 'annual residuals')
+# in the two survival rates and in recapture
+for (s in 1:(nspecies.j)){
+  for (t in 1:(nyears-1)){
+    epsilon.js[t,s] ~ dnorm(0, tau.j[s])
+  }
+}
+
+for (s in 1:(nspecies)){
+  for (t in 1:(nyears-1)){
+    epsilon.as[t,s] ~ dnorm(0, tau.a[s])
+    epsilon.p[t,s] ~ dnorm(0, tau.p[s])
+  }
+}
+
+
+# Priors for yearly random-effects for juv and ad survival
+for (s in 1:(nspecies.j)){
+  tau.j[s] <- 1 / sigma2.j[s]
+  log(sigma2.j[s]) <- lsigma2.j[s]
+  lsigma2.j[s] ~ dnorm(mu.lsigma2.j, tau.lsigma2.j)
+  sigma.j[s] <- sqrt(sigma2.j[s])
+}
+
+for (s in 1:(nspecies)){
+  tau.a[s] <- 1 / sigma2.a[s]
+  log(sigma2.a[s]) <- lsigma2.a[s]
+  lsigma2.a[s] ~ dnorm(mu.lsigma2.a, tau.lsigma2.a)
+  sigma.a[s] <- sqrt(sigma2.a[s])
+}
+
+
+# We make the changes in the next block here, where we express
+# the expectation in the Normal for the juvenile intercept as 
+# a function of the species-level covariate. For this we first have 
+# to index by s mu.mu.j (but not tau.mu.j as discussed)
+
+# Community models for survival
+# These relate the species- and the community-level parameters
+for (s in 1:(nspecies.j)){
+  # Community model (prior) for the two sets of intercepts 
+  #    (for juv)
+  mean.phi.j[s] <- ilogit(mu.j[s])
+  mu.j[s] ~ dnorm(mu.mu.j[s], tau.mu.j) 
+ 
+  # Here now we add the linear regression on migration and body masses
+  mu.mu.j[s] <- alpha.mu.mu.j[migration[s]] + beta.mu.mu.j * lbm.juv[s]
+
+  # Community models (priors) for 4 slope params in juv survival
+  beta.j1[s] ~ dnorm(mu.beta.j1, tau.beta.mu.j1)
+  beta.j2[s] ~ dnorm(mu.beta.j2, tau.beta.mu.j2) 
+  beta.j3[s] ~ dnorm(mu.beta.j3, tau.beta.mu.j3) 
+  beta.j.trend[s] ~ dnorm(mu.beta.j.t, tau.beta.mu.j.t) 
+}
+
+for (s in 1:(nspecies)){
+  # Community model (prior) for the two sets of intercepts 
+  #    (for ad survival)
+  mean.phi.a[s] <- ilogit(mu.a[s])
+  mu.a[s] ~ dnorm(mu.mu.a[s], tau.mu.a)
+
+  # Here now we add the linear regression on migration and body masses
+  mu.mu.a[s] <- alpha.mu.mu.a[migration[s]] + beta.mu.mu.a * lbm.ad[s]  
+
+  # Community models (priors) for 4  slope params in ad survival
+  beta.a1[s] ~ dnorm(mu.beta.a1, tau.beta.mu.j1) 
+  beta.a2[s] ~ dnorm(mu.beta.a2, tau.beta.mu.j2) 
+  beta.a3[s] ~ dnorm(mu.beta.a3, tau.beta.mu.j3) 
+  beta.a.trend[s] ~ dnorm(mu.beta.a.t, tau.beta.mu.a.t) 
+}
+
+# Priors for hyperparameters
+# For the species-level intercept community model
+# Here now change for the prior for the hypermean
+# We have one vector of length 2 now, not a scalar anymore
+# And now we also must give a prior for the slope on mass
+for(k in 1:2){
+  alpha.mu.mu.j[k] <- logit(gm.mu.j[k])
+  gm.mu.j[k] ~ dunif(0, 1)
+}
+beta.mu.mu.j ~ dnorm(0, 0.1)
+tau.mu.j <- pow(sd.mu.j, -2)
+sd.mu.j ~ dunif(0, 5)
+
+for(k in 1:2){
+  alpha.mu.mu.a[k] <- logit(gm.mu.a[k])
+  gm.mu.a[k] ~ dunif(0,1)
+} 
+beta.mu.mu.a ~ dnorm(0, 0.1)
+tau.mu.a <- pow(sd.mu.a, -2)
+sd.mu.a ~ dunif(0, 5)
+
+# For the species-level slopes in the regressions
+# juv
+mu.beta.j1 ~ dnorm(0,0.1)
+tau.beta.mu.j1 <- pow(sd.beta.mu.j1, -2)
+sd.beta.mu.j1 ~ dunif(0,10)
+
+mu.beta.j2 ~ dnorm(0,0.1)
+tau.beta.mu.j2 <- pow(sd.beta.mu.j2, -2)
+sd.beta.mu.j2 ~ dunif(0,10)
+
+mu.beta.j3 ~ dnorm(0,0.1)
+tau.beta.mu.j3 <- pow(sd.beta.mu.j3, -2)
+sd.beta.mu.j3 ~ dunif(0,10)
+
+mu.beta.j.t ~ dnorm(0,0.1)
+tau.beta.mu.j.t <- pow(sd.beta.mu.j.t, -2)
+sd.beta.mu.j.t ~ dunif(0,2)
+
+# ad
+mu.beta.a1 ~ dnorm(0,0.1)
+tau.beta.mu.a1 <- pow(sd.beta.mu.a1, -2)
+sd.beta.mu.a1 ~ dunif(0,10) # increased to 10 because previous runs 95% quantiles were very close to 2
+
+mu.beta.a2 ~ dnorm(0,0.1)
+tau.beta.mu.a2 <- pow(sd.beta.mu.a2, -2)
+sd.beta.mu.a2 ~ dunif(0,10) # increased to 10 because previous runs 95% quantiles were very close to 2
+
+mu.beta.a3 ~ dnorm(0,0.1)
+tau.beta.mu.a3 <- pow(sd.beta.mu.a3, -2)
+sd.beta.mu.a3 ~ dunif(0,10) # increased to 10 because previous runs 95% quantiles were very close to 2
+
+mu.beta.a.t ~ dnorm(0,0.1)
+tau.beta.mu.a.t <- pow(sd.beta.mu.a.t, -2)
+sd.beta.mu.a.t ~ dunif(0,2)
+
+# Variances
+# juv
+mu.lsigma2.j ~ dnorm(0,0.01)
+tau.lsigma2.j <- pow(sd.lsigma2.j, -2)
+sd.lsigma2.j ~ dunif(0,2)
+
+# ad
+mu.lsigma2.a ~ dnorm(0,0.01)
+tau.lsigma2.a <- pow(sd.lsigma2.a, -2)
+sd.lsigma2.a ~ dunif(0,2)
+
+# Community models for recapture
+for (s in 1:(nspecies)){
+  mean.p[s] <- ilogit(mu.p[s])   # logit transformation
+  mu.p[s] ~ dnorm(mu.mu.p, tau.mu.p)# prior for logit of mean recapture
+  beta.p[s] ~ dnorm(mu.beta.p, tau.beta.mu.p) # Prior for slope parameter
+  tau.p[s] <- 1 / sigma2.p[s]
+  log(sigma2.p[s]) <- lsigma2.p[s]
+  lsigma2.p[s] ~ dnorm(mu.lsigma2.p, tau.lsigma2.p)
+  sigma.p[s] <- sqrt(sigma2.p[s])
+}
+
+# Priors for recapture hyperparameters
+# For the species-level intercept community model
+mu.mu.p <- logit(gm.mu.p)
+gm.mu.p ~ dunif(0, 1)
+tau.mu.p <- pow(sd.mu.p, -2)
+sd.mu.p ~ dunif(0, 5)
+
+# For the species-level slope community model
+mu.beta.p ~ dnorm(0,0.1)
+tau.beta.mu.p <- pow(sd.beta.mu.p, -2)
+sd.beta.mu.p ~ dunif(0,2)
+
+# Recapture variances    
+mu.lsigma2.p ~ dnorm(0,0.01)
+tau.lsigma2.p <- pow(sd.lsigma2.p, -2)
+sd.lsigma2.p ~ dunif(0,2)
+
+
+
+# From here on, 'all' is new
+
+# Define the multinomial likelihood for the counts in the 2 m-arrays
+
+# 1. for the data sets where there are juv and adults
+
+for (s in 1:(nspecies.j)){
+  for (t in 1:(nyears-1)){
+    marr.j[t,1:nyears,s] ~ dmulti(pr.j[t,,s], rel.j[t,s])
+    marr.a[t,1:nyears,s] ~ dmulti(pr.a[t,,s], rel.a[t,s])
+  }
+}
+
+# Define the cell probabilities of the m-arrays
+# Main diagonal
+for (s in 1:(nspecies.j)){
+  for (t in 1:(nyears-1)){
+  q[t,s] <- 1-p[t,s]   # Probability of non-recapture
+  pr.j[t,t,s] <- phi.j[t,s]*p[t,s]
+  pr.a[t,t,s] <- phi.a[t,s]*p[t,s]
+  # Above main diagonal
+  for (j in (t+1):(nyears-1)){
+    pr.j[t,j,s] <- phi.j[t,s]*prod(phi.a[(t+1):j,s])*prod(q[t:(j-1),s])*p[j,s]
+    pr.a[t,j,s] <- prod(phi.a[t:j,s])*prod(q[t:(j-1),s])*p[j,s]
+    } #j
+  # Below main diagonal
+  for (j in 1:(t-1)){
+    pr.j[t,j,s] <- 0
+    pr.a[t,j,s] <- 0
+    } #j
+  } #t
+}
+# Last column: probability of non-recapture
+for (s in 1:(nspecies.j)){
+  for (t in 1:(nyears-1)){
+    pr.j[t,nyears,s] <- 1-sum(pr.j[t,1:(nyears-1),s])
+    pr.a[t,nyears,s] <- 1-sum(pr.a[t,1:(nyears-1),s])
+  } #t
+}
+
+
+# 2. for the data sets where there adults only
+
+for (s in 4:(nspecies)){
+  for (t in 1:(nyears-1)){
+    marr.a[t,1:nyears,s] ~ dmulti(pr.a[t,,s], rel.a[t,s])
+  }
+}
+
+# Define the cell probabilities of the m-arrays
+# Main diagonal
+for (s in 4:(nspecies)){
+  for (t in 1:(nyears-1)){
+  q[t,s] <- 1-p[t,s]   # Probability of non-recapture
+  pr.a[t,t,s] <- phi.a[t,s]*p[t,s]
+  # Above main diagonal
+  for (j in (t+1):(nyears-1)){
+    pr.a[t,j,s] <- prod(phi.a[t:j,s])*prod(q[t:(j-1),s])*p[j,s]
+    } #j
+  # Below main diagonal
+  for (j in 1:(t-1)){
+    pr.a[t,j,s] <- 0
+    } #j
+  } #t
+}
+# Last column: probability of non-recapture
+for (s in 4:(nspecies)){
+  for (t in 1:(nyears-1)){
+    pr.a[t,nyears,s] <- 1-sum(pr.a[t,1:(nyears-1),s])
+  } #t
+}
+
+}
+
+")
+
+
+# Initial values
+nspecies <- 5
+nspecies.j <- 3
+inits <- function(){list(mu.j=rep(0,nspecies.j), mu.a = rep(0,nspecies), mu.p = rep(0,nspecies))} #not sure
+
+
+# Parameters monitored
+parameters <- c("mean.phi.j", "phi.j", "mean.phi.a", "phi.a", "beta.j1", "beta.j2", "beta.j3", "beta.j.trend", "beta.a1", "beta.a2", "beta.a3", "beta.a.trend", "mu.beta.j1", "mu.beta.j2", "mu.beta.j3", "mu.beta.j.t", "mu.beta.a1", "mu.beta.a2", "mu.beta.a3", "mu.beta.a.t", "sd.beta.mu.j1", "sd.beta.mu.j2", "sd.beta.mu.j3", "sd.beta.mu.j.t", "sd.beta.mu.a1", "sd.beta.mu.a2", "sd.beta.mu.a3", "sd.beta.mu.a.t", "mean.p", "p", "beta.p","mu.mu.p","sd.mu.p", "alpha.mu.mu.j", "beta.mu.mu.j", "alpha.mu.mu.a", "beta.mu.mu.a","mu.mu.j", "mu.mu.a", "sd.mu.j", "sd.mu.a")
+
+# MCMC settings
+na <- 1000;  ni <- 1100000;  nt <- 5;  nb <- 100000;  nc <- 3
+
+# Launch JAGS
+Sys.time()
+out.new <- jags(jags.data, inits, parameters, "model.txt",
+  n.adapt = na, n.chains = nc, n.thin = nt, n.iter = ni, 
+  n.burnin = nb, parallel = T)
+Sys.time()
+
+print(out.new)
